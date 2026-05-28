@@ -17,7 +17,7 @@ from isaaclab.utils import configclass
 
 from humanoid_locomotion.assets.robots import unitree_actuators
 
-UNITREE_MODEL_DIR = "D:/isaaclab/unitree_model"  # Replace with the actual path to your unitree_model directory
+UNITREE_MODEL_DIR = "/root/gpufree-data/unitree_model"  # Replace with the actual path to your unitree_model directory
 # UNITREE_MODEL_DIR = "/home/dwk/unitree_model"
 UNITREE_ROS_DIR = "path/to/unitree_ros"  # Replace with the actual path to your unitree_ros package
 

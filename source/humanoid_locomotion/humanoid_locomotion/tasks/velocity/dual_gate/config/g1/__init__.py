@@ -233,3 +233,14 @@ gym.register(
         "concurrent_rsl_rl_cfg_entry_point": f"{agents.__name__}.concurrent_rsl_rl_ppo_cfg:G1RoughPPORunnerCfg",
     },
 )
+
+# CMoE
+gym.register(
+    id="DualGate-Attention-G1-v1",  # change terrain curriculum, add height on curriculum
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.attention_env_cfg:G1AttentionEnvCfgv1",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.cmoe_rsl_rl_ppo_cfg:G1RoughPPORunnerCfg",
+    },
+)
