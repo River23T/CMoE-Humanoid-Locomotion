@@ -236,11 +236,38 @@ gym.register(
 
 # CMoE
 gym.register(
-    id="DualGate-Attention-G1-v1",  # change terrain curriculum, add height on curriculum
+    id="DualGate-CMoE-G1",  # change terrain curriculum, add height on curriculum
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
     disable_env_checker=True,
     kwargs={
-        "env_cfg_entry_point": f"{__name__}.attention_env_cfg:G1AttentionEnvCfgv1",
+        "env_cfg_entry_point": f"{__name__}.cmoe_env_cfg:G1CMoEEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.cmoe_rsl_rl_ppo_cfg:G1RoughPPORunnerCfg",
+    },
+)
+gym.register(
+    id="DualGate-CMoE-G1-Play",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.cmoe_env_cfg:G1CMoEEnvCfg_PLAY",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.cmoe_rsl_rl_ppo_cfg:G1RoughPPORunnerCfg",
+    },
+)
+gym.register(
+    id="DualGate-CMoE-G1-Eval",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.cmoe_env_cfg:G1CMoEEnvCfg_EVAL",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.cmoe_rsl_rl_ppo_cfg:G1RoughPPORunnerCfg",
+    },
+)
+gym.register(
+    id="DualGate-CMoE-G1-Benchmark",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.cmoe_benchmark_env_cfg:G1CMoEBenchmarkEnvCfg",
         "rsl_rl_cfg_entry_point": f"{agents.__name__}.cmoe_rsl_rl_ppo_cfg:G1RoughPPORunnerCfg",
     },
 )

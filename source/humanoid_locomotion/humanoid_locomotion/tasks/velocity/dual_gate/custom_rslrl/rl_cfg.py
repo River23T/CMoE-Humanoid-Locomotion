@@ -5,13 +5,11 @@
 
 from __future__ import annotations
 
-from dataclasses import MISSING
-
 from isaaclab.utils import configclass
 
 from isaaclab_rl.rsl_rl.rl_cfg import RslRlCNNModelCfg, RslRlMLPModelCfg, RslRlOnPolicyRunnerCfg
 from isaaclab_rl.rsl_rl.rl_cfg import RslRlPpoAlgorithmCfg
-
+from typing import Literal
 
 #########################
 # Model configurations #
@@ -71,3 +69,20 @@ class RslRlOnPolicyRunnerCfgNew(RslRlOnPolicyRunnerCfg):
     """The runner class name. Defaults to OnPolicyRunner."""
 
     torch_compile_mode : Literal["default", "max-autotune-no-cudagraphs"] | None = None
+
+@configclass
+class RslRlCMoEModelCfg(RslRlMLPModelCfg):
+    # MLP estimators + MoE + gate + contrastive
+    class_name: str = "humanoid_locomotion.tasks.velocity.dual_gate.custom_rslrl.models.cmoe_model:CMoEModel"
+    num_experts: int = 5                        # 论文 N=5
+    expert_hidden_dims: list[int] = [512, 256, 128]  # 官方单专家子网
+    gate_hidden_dims: list[int] = [128]         # 门控网络
+    vae_latent_dim: int = 16                    # z_t^H 维度
+
+
+@configclass
+class RslRlPpoCMoEAlgorithmCfg(RslRlPpoAlgorithmCfg):
+    """CMoE 的 PPO 算法配置(PPO + 对比学习; VAE/AE/速度估计在各自估计器内部独立训练)。"""
+    class_name: str = "humanoid_locomotion.tasks.velocity.dual_gate.custom_rslrl.algorithms.ppo_cmoe:PPOCMoE"
+    share_cnn_encoders: bool = False            # construct_algorithm 用 .pop 读取,必须是声明字段
+    contrastive_loss_coef: float = 1.0          # 官方等价 1.0
