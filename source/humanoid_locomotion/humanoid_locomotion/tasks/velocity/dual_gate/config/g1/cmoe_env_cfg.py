@@ -8,6 +8,7 @@ import math
 
 import torch
 
+from isaaclab.assets import ArticulationCfg
 from isaaclab.managers import CurriculumTermCfg as CurrTerm
 from isaaclab.managers import EventTermCfg as EventTerm
 from isaaclab.managers import ObservationTermCfg as ObsTerm
@@ -17,6 +18,10 @@ from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.sensors import RayCasterCfg, patterns
 from isaaclab.utils import configclass
 
+from humanoid_locomotion.assets.robots.cmoe_g1 import (
+    CMOE_G1_JOINT_NAMES,
+    UNITREE_G1_CMOE_12DOF_CFG,
+)
 from humanoid_locomotion.tasks.velocity.dual_gate import mdp
 from humanoid_locomotion.tasks.velocity.dual_gate.terrains.config.cmoe import (
     CMOE_TERRAINS_CFG,
@@ -31,26 +36,11 @@ from .rough_env_cfg import (
 
 
 # ---------------------------------------------------------------------------- #
-#  2026-07-17 结构性对齐: 官方 CMoE 是 12 自由度纯腿策略。
-#  - 官方 g1_cmoe_config.py 第15行: num_actions = 12;
-#    第11行: num_one_step_observations = 45 = 角速度3 + 重力3 + 指令3 + q12 + qd12 + a12
-#  - 官方 URDF g1_29dof_with_hand_fixed_modify_collision.urdf 实测:
-#    12 个 revolute(双腿) + 50 个 fixed —— 腰 3 关节与双臂 14 关节全部焊死
-#  - 官方 control.stiffness 字典只有 hip/knee/ankle, 根本没有上身增益
-#  之前的移植把 29 个关节全部塞进了动作与观测空间(actor 单帧 96 维), 让策略在
-#  没有任何上身姿态奖励的情况下额外控制 17 个自由关节 —— 这是本轮 1 秒即倒、
-#  std 塌缩到 0.31、terrain level 钉死 0.06 的根因。以下常量把动作/观测/奖励/
-#  域随机化全部限定到官方同款 12 个腿关节; 其余 17 关节由资产里已有的执行器
-#  以默认角位置伺服(waist_yaw 200/5, 肩肘腕 40/1), 近似官方的刚性焊死。
+#  官方 CMoE 策略使用固定上身、12 个主动腿关节。
+#  这里保持官方策略/SDK顺序；Isaac Lab运行时会左右交错重排，
+#  因此动作和本体感受观测必须显式使用 preserve_order=True。
 # ---------------------------------------------------------------------------- #
-LEG_JOINT_NAMES = [
-    ".*_hip_yaw_joint",
-    ".*_hip_roll_joint",
-    ".*_hip_pitch_joint",
-    ".*_knee_joint",
-    ".*_ankle_pitch_joint",
-    ".*_ankle_roll_joint",
-]
+LEG_JOINT_NAMES = list(CMOE_G1_JOINT_NAMES)
 
 
 def reset_joints_by_scale_selected(
@@ -60,13 +50,11 @@ def reset_joints_by_scale_selected(
     velocity_range: tuple[float, float],
     asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
 ):
-    """官方 humanoid.py::_reset_dofs 的关节子集版。
+    """按官方 CMoE 语义复位12个主动腿关节。
 
-    官方语义: 它的仿真里只有 12 个腿关节, 复位时 q0 x U(0.5, 1.5)、速度 0。
-    Isaac Lab 自带的 mdp.reset_joints_by_scale 会把缩放施加到**全部 29 关节**
-    (它不读 asset_cfg.joint_ids), 导致被锁定的上身每回合从 0.5~1.5 倍默认角
-    出发再被伺服拉回, 引入官方不存在的开局扰动。本函数只缩放 joint_ids 指定的
-    腿关节, 其余关节精确落在默认角、零速度 —— 等价于官方"上身焊死"的复位。
+    默认关节角乘 U(0.5, 1.5)，关节速度按给定范围采样，
+    随后将关节角限制在软关节限位内。当前资产本身只有
+    12个主动关节，asset_cfg用于保持官方策略关节顺序。
     """
     asset = env.scene[asset_cfg.name]
     joint_pos = asset.data.default_joint_pos[env_ids].clone()
@@ -93,6 +81,15 @@ def reset_joints_by_scale_selected(
 # ---------------------------------------------------------------------------- #
 @configclass
 class CMoESceneCfg(RobotSceneCfg):
+    robot: ArticulationCfg = UNITREE_G1_CMOE_12DOF_CFG.replace(
+        prim_path="{ENV_REGEX_NS}/Robot"
+    )
+
+    # 父类扫描器挂在已被固定关节合并掉的 torso_link 上；本任务不使用它们。
+    actor_height_scanner = None
+    critic_height_scanner = None
+    base_height = None
+
     left_foot_sample = RayCasterCfg(
         prim_path="{ENV_REGEX_NS}/Robot/left_ankle_roll_link",
         offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 20.0)),
@@ -139,7 +136,7 @@ class CMoESceneCfg(RobotSceneCfg):
     #  - ChamferGridPatternCfg: 每个网格点 3 条射线 (x±0.05), 复刻官方 3 点倒角平均
     #  - drift_range: 近似官方每回合 xy 平移噪声 N(0, 0.05)
     cmoe_height_scanner = RayCasterCfg(
-        prim_path="{ENV_REGEX_NS}/Robot/torso_link",
+        prim_path="{ENV_REGEX_NS}/Robot/pelvis",
         offset=RayCasterCfg.OffsetCfg(pos=(0.4, 0.0, 20.0)),
         ray_alignment="world",
         pattern_cfg=mdp.ChamferGridPatternCfg(resolution=0.1, size=(1.0, 0.6)),
@@ -240,9 +237,7 @@ class CMoERewardsCfg:
         weight=-0.5,
         params={"asset_cfg": SceneEntityCfg("robot", joint_names=[".*_hip_roll_joint", ".*_hip_yaw_joint"])},
     )
-    # 2026-07-17: 以下 6 项全部限定 12 腿关节 —— 官方仿真中只有这 12 个自由度,
-    # 它的 sum over all joints 天然只覆盖双腿; 被位置伺服锁定的上身关节会持续
-    # 产生握持力矩/微小速度, 不限定会往这些惩罚里注入官方不存在的常量偏置。
+    # 以下关节惩罚显式限定到官方12个主动腿关节。
     dof_acc = RewTerm(
         func=mdp.joint_acc_l2, weight=-2.5e-7,
         params={"asset_cfg": SceneEntityCfg("robot", joint_names=LEG_JOINT_NAMES)},
@@ -321,8 +316,7 @@ class CMoEEventCfg:
         func=mdp.randomize_actuator_gains,
         mode="reset",
         params={
-            # 2026-07-17: ".*" -> 腿关节。官方 randomize_kp/kd 作用于它仅有的 12 个
-            # 腿自由度; 上身握持增益保持确定值, 让"焊死"近似更稳定。
+            # 官方 randomize_kp/kd 作用于全部12个主动腿关节。
             "asset_cfg": SceneEntityCfg("robot", joint_names=LEG_JOINT_NAMES),
             "operation": "scale",
             "stiffness_distribution_params": (0.9, 1.1),
@@ -389,9 +383,7 @@ class CMoEEventCfg:
             },
         },
     )
-    # 官方 _reset_dofs: q0 x U(0.5, 1.5), 速度 0 —— 只作用于它的 12 个腿关节。
-    # 2026-07-17: 换成本文件顶部的 reset_joints_by_scale_selected: 腿缩放,
-    # 上身 17 关节每回合精确回默认角(Isaac Lab 自带版会缩放全部 29 关节)。
+    # 官方 _reset_dofs: 12个主动关节的 q0 x U(0.5, 1.5)，速度为0。
     reset_robot_joints = EventTerm(
         func=reset_joints_by_scale_selected,
         mode="reset",
@@ -467,28 +459,27 @@ class G1CMoEEnvCfg(G1VelocityRoughEnvCfg):
         self.sim.physics_material.restitution_combine_mode = "average"
         # ---- 动作: 官方 action_scale = 0.25 (父类为 0.5) ----
         self.actions.joint_pos.scale = 0.25
-        # ---- 动作空间: 29 -> 12。官方 num_actions=12, 上身在官方 URDF 里是焊死的;
-        # 这里把动作限定到 12 个腿关节, 未被动作项覆盖的 17 个上身关节的 PD 目标
-        # 恒为默认角, 由既有执行器位置伺服(等效"焊死"近似)。----
+        # ---- 动作空间: 官方12个主动腿关节，保持策略/SDK顺序。----
         self.actions.joint_pos.joint_names = list(LEG_JOINT_NAMES)
+        self.actions.joint_pos.preserve_order = True
 
-        # ---- 本体感受观测: 29 关节 -> 12 腿关节 (官方 45 维单帧) ----
+        # ---- 本体感受观测: 官方12个主动关节，单帧45维。----
         # 2026-07-17 修复: 四个观测项必须各自持有**独立的 SceneEntityCfg 实例**。
         # manager 解析时会原地改写该对象(把 joint_ids 从 slice 填成具体下标列表),
         # 共享同一实例会让第二个观测项解析时看到 "joint_names(正则) + joint_ids(已填)"
         # 并存, 触发 "Both 'joint_names' and 'joint_ids' are specified" 崩溃 ——
         # 与本文件高度图注释里 "actor_map/critic_map 必须各自独立 ObsTerm" 是同一类坑。
         self.observations.actor.joint_pos_rel.params["asset_cfg"] = SceneEntityCfg(
-            "robot", joint_names=list(LEG_JOINT_NAMES)
+            "robot", joint_names=list(LEG_JOINT_NAMES), preserve_order=True
         )
         self.observations.actor.joint_vel_rel.params["asset_cfg"] = SceneEntityCfg(
-            "robot", joint_names=list(LEG_JOINT_NAMES)
+            "robot", joint_names=list(LEG_JOINT_NAMES), preserve_order=True
         )
         self.observations.critic.joint_pos_rel.params["asset_cfg"] = SceneEntityCfg(
-            "robot", joint_names=list(LEG_JOINT_NAMES)
+            "robot", joint_names=list(LEG_JOINT_NAMES), preserve_order=True
         )
         self.observations.critic.joint_vel_rel.params["asset_cfg"] = SceneEntityCfg(
-            "robot", joint_names=list(LEG_JOINT_NAMES)
+            "robot", joint_names=list(LEG_JOINT_NAMES), preserve_order=True
         )
         # last_action 项自动跟随动作管理器变为 12 维, 无需处理。
 
@@ -521,40 +512,6 @@ class G1CMoEEnvCfg(G1VelocityRoughEnvCfg):
         # 官方 critic 拿到的本体感受与高度图和 actor 一样是带噪的 (humanoid.py 中
         # privileged_obs 由同一份 current_obs 切片而来), 因此打开 critic 噪声:
         self.observations.critic.enable_corruption = True
-        self.scene.robot.actuators["N5020-16"].effort_limit_sim = {
-        ".*_ankle_.*": 50.0,
-        "waist_roll_joint": 50.0,
-        "waist_pitch_joint": 50.0,
-        ".*_shoulder_.*": 25.0,
-        ".*_elbow_.*": 25.0,
-        ".*_wrist_roll.*": 25.0,
-        }
-        # ---- 2026-07-19 上身对齐官方"焊死"(URDF: 腰3+臂14 全 fixed 于 q=0) ----
-        # (a) 位姿: 官方焊在零位(手臂下垂)。原弯臂位双臂 8.09kg(23.5%)质心前移~2cm。
-        self.scene.robot.init_state.joint_pos[".*_shoulder_pitch_joint"] = 0.0
-        self.scene.robot.init_state.joint_pos["left_shoulder_roll_joint"] = 0.0
-        self.scene.robot.init_state.joint_pos["right_shoulder_roll_joint"] = 0.0
-        self.scene.robot.init_state.joint_pos[".*_elbow_joint"] = 0.0
-        self.scene.robot.init_state.joint_pos["left_wrist_roll_joint"] = 0.0
-        self.scene.robot.init_state.joint_pos["right_wrist_roll_joint"] = 0.0
-        # (b) 握持刚度: 腰上 16.21kg、质心~0.25m -> 重力失稳刚度~40 N·m/rad, 与原 kp=40
-        #     相抵(临界稳定)。腰提到 200/5(与 waist_yaw 同档), 臂 100/3; 踝保持官方 40/2。
-        self.scene.robot.actuators["N5020-16"].stiffness = {
-            ".*_ankle_.*": 40.0,
-            "waist_roll_joint": 200.0,
-            "waist_pitch_joint": 200.0,
-            ".*_shoulder_.*": 100.0,
-            ".*_elbow_.*": 100.0,
-            ".*_wrist_roll.*": 100.0,
-        }
-        self.scene.robot.actuators["N5020-16"].damping = {
-            ".*_ankle_.*": 2.0,
-            "waist_roll_joint": 5.0,
-            "waist_pitch_joint": 5.0,
-            ".*_shoulder_.*": 3.0,
-            ".*_elbow_.*": 3.0,
-            ".*_wrist_roll.*": 3.0,
-        }
         # ---- 高度图: 官方处理链 (绝对高 -> 0.2 陈旧 -> clip100 -> x5 -> +U(0.15) -> 椒盐 4+4) ----
         # 注意: actor_map 与 critic_map 必须各自持有**独立的 ObsTerm 实例**
         # (manager 会原地改写 term_cfg.params, 共享同一对象会让两个 group 互相干扰);
