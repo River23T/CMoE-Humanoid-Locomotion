@@ -72,7 +72,7 @@ UNITREE_G1_CMOE_12DOF_CFG = UnitreeArticulationCfg(
             damping=2.0,
             armature=0.0,
             min_delay=0,
-            max_delay=3,
+            max_delay=0,
         ),
         "hip_roll": DelayedPDActuatorCfg(
             joint_names_expr=[".*_hip_roll_joint"],
@@ -82,7 +82,7 @@ UNITREE_G1_CMOE_12DOF_CFG = UnitreeArticulationCfg(
             damping=2.0,
             armature=0.0,
             min_delay=0,
-            max_delay=3,
+            max_delay=0,
         ),
         "knee": DelayedPDActuatorCfg(
             joint_names_expr=[".*_knee_joint"],
@@ -92,7 +92,7 @@ UNITREE_G1_CMOE_12DOF_CFG = UnitreeArticulationCfg(
             damping=4.0,
             armature=0.0,
             min_delay=0,
-            max_delay=3,
+            max_delay=0,
         ),
         "ankle": DelayedPDActuatorCfg(
             joint_names_expr=[
@@ -105,7 +105,7 @@ UNITREE_G1_CMOE_12DOF_CFG = UnitreeArticulationCfg(
             damping=2.0,
             armature=0.0,
             min_delay=0,
-            max_delay=3,
+            max_delay=0,
         ),
     },
     joint_sdk_names=CMOE_G1_JOINT_NAMES,

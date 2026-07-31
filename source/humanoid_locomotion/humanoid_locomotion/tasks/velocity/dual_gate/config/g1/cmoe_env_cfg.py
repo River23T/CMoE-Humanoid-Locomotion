@@ -33,6 +33,7 @@ from .rough_env_cfg import (
     RobotSceneCfg,
     RecorderManagerCfg,
 )
+from humanoid_locomotion.tasks.velocity.dual_gate.mdp.cmoe_actions import CMoESubstepDelayedJointPositionAction
 
 
 # ---------------------------------------------------------------------------- #
@@ -459,6 +460,7 @@ class G1CMoEEnvCfg(G1VelocityRoughEnvCfg):
         self.sim.physics_material.restitution_combine_mode = "average"
         # ---- 动作: 官方 action_scale = 0.25 (父类为 0.5) ----
         self.actions.joint_pos.scale = 0.25
+        self.actions.joint_pos.class_type = CMoESubstepDelayedJointPositionAction
         # ---- 动作空间: 官方12个主动腿关节，保持策略/SDK顺序。----
         self.actions.joint_pos.joint_names = list(LEG_JOINT_NAMES)
         self.actions.joint_pos.preserve_order = True
