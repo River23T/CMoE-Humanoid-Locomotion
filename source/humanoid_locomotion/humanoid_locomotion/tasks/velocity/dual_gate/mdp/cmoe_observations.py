@@ -143,15 +143,23 @@ def cmoe_elevation_map(
 # =============================================================================
 def push_by_replacing_velocity(
     env: "ManagerBasedEnv",
-    env_ids: torch.Tensor,
+    env_ids: torch.Tensor | None,
     velocity_range: dict[str, tuple[float, float]],
     asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
 ):
     asset: Articulation = env.scene[asset_cfg.name]
+
+    if env_ids is None:
+        env_ids = torch.arange(env.num_envs, device=asset.device, dtype=torch.long)
+    elif not torch.is_tensor(env_ids):
+        env_ids = torch.as_tensor(env_ids, device=asset.device, dtype=torch.long)
+    else:
+        env_ids = env_ids.to(device=asset.device, dtype=torch.long)
+
     vel = asset.data.root_vel_w[env_ids].clone()
     for i, key in enumerate(("x", "y")):
         lo, hi = velocity_range.get(key, (0.0, 0.0))
-        vel[:, i] = torch.empty(len(env_ids), device=asset.device).uniform_(lo, hi)
+        vel[:, i] = torch.empty(env_ids.numel(), device=asset.device).uniform_(lo, hi)
     asset.write_root_velocity_to_sim(vel, env_ids=env_ids)
 
 
