@@ -30,6 +30,7 @@ from humanoid_locomotion.tasks.velocity.dual_gate.terrains.config.cmoe import (
 
 from .rough_env_cfg import (
     G1VelocityRoughEnvCfg,
+    ObservationsCfg as RoughObservationsCfg,
     RobotSceneCfg,
     RecorderManagerCfg,
 )
@@ -42,6 +43,18 @@ from humanoid_locomotion.tasks.velocity.dual_gate.mdp.cmoe_actions import CMoESu
 #  因此动作和本体感受观测必须显式使用 preserve_order=True。
 # ---------------------------------------------------------------------------- #
 LEG_JOINT_NAMES = list(CMOE_G1_JOINT_NAMES)
+
+
+@configclass
+class CMoEObservationsCfg(RoughObservationsCfg):
+    """CMoE observations with official disturbance in privileged critic input."""
+
+    @configclass
+    class CriticCfg(RoughObservationsCfg.CriticCfg):
+        # 父级48维之后追加三维局部坐标系扰动力。
+        disturbance = ObsTerm(func=mdp.cmoe_disturbance)
+
+    critic: CriticCfg = CriticCfg()
 
 
 def reset_joints_by_scale_selected(
@@ -394,6 +407,19 @@ class CMoEEventCfg:
             "asset_cfg": SceneEntityCfg("robot", joint_names=LEG_JOINT_NAMES),
         },
     )
+    # 官方 disturbance:
+    # 每8个策略步，即8×0.02s=0.16s，对pelvis施加一次局部坐标系三维力。
+    disturbance = EventTerm(
+        func=mdp.apply_cmoe_disturbance,
+        mode="interval",
+        interval_range_s=(0.16, 0.16),
+        is_global_time=True,
+        params={
+            "force_range": (-30.0, 30.0),
+            "asset_cfg": SceneEntityCfg("robot", body_names=["pelvis"]),
+        },
+    )
+
     # 官方 _push_robots: 每 16s 把基座 xy 速度替换为 U(-1, 1) m/s
     push_robot = EventTerm(
         func=mdp.push_by_replacing_velocity,
@@ -413,11 +439,12 @@ class G1CMoEEnvCfg(G1VelocityRoughEnvCfg):
 
     2026-07-17 起对齐官方 12 自由度结构:
       actor 单帧 45 = 角速度3+重力3+指令3+q12+qd12+a12 (官方 num_one_step_observations=45),
-      历史 H=10 (官方 num_observations = 45*10), critic 单帧 48 (45+基座线速度3),
+      历史 H=10 (官方 num_observations = 45*10), critic 单帧 51 (45+基座线速度3+扰动力3),
       动作 12 (官方 num_actions=12)。map 3x7x11 (官方 77 点)。
     网络维度由 runner 从观测形状运行期推断, 无需改模型代码。
     """
 
+    observations: CMoEObservationsCfg = CMoEObservationsCfg()
     scene: CMoESceneCfg = CMoESceneCfg(num_envs=4096, env_spacing=2.5)
     commands: CMoECommandsCfg = CMoECommandsCfg()
     rewards: CMoERewardsCfg = CMoERewardsCfg()

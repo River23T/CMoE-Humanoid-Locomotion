@@ -164,7 +164,63 @@ def push_by_replacing_velocity(
 
 
 # =============================================================================
-#  5) 官方指令课程 (legged_robot.update_command_curriculum 逐句移植)
+#  5) 官方 disturbance: 每 8 个策略步对 pelvis 施加一次局部坐标系三维力
+# =============================================================================
+def apply_cmoe_disturbance(
+    env: "ManagerBasedEnv",
+    env_ids: torch.Tensor | None,
+    force_range: tuple[float, float],
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names=["pelvis"]),
+):
+    asset: Articulation = env.scene[asset_cfg.name]
+
+    if env_ids is None:
+        env_ids = torch.arange(env.num_envs, device=asset.device, dtype=torch.long)
+    elif not torch.is_tensor(env_ids):
+        env_ids = torch.as_tensor(env_ids, device=asset.device, dtype=torch.long)
+    else:
+        env_ids = env_ids.to(device=asset.device, dtype=torch.long)
+
+    body_ids = asset_cfg.body_ids
+    if body_ids is None or isinstance(body_ids, slice) or len(body_ids) != 1:
+        raise RuntimeError(f"CMoE disturbance must resolve exactly one body, got {body_ids}")
+
+    lo, hi = force_range
+    forces = torch.empty((env_ids.numel(), 1, 3), device=asset.device).uniform_(lo, hi)
+    torques = torch.zeros_like(forces)
+
+    asset.instantaneous_wrench_composer.set_forces_and_torques(
+        forces=forces,
+        torques=torques,
+        body_ids=body_ids,
+        env_ids=env_ids,
+        is_global=False,
+    )
+
+    if not hasattr(env, "_cmoe_disturbance"):
+        env._cmoe_disturbance = torch.zeros((env.num_envs, 3), device=asset.device)
+        env._cmoe_disturbance_step = torch.full(
+            (env.num_envs,), -1, dtype=torch.long, device=asset.device
+        )
+
+    env._cmoe_disturbance[env_ids] = forces[:, 0, :]
+    env._cmoe_disturbance_step[env_ids] = int(env.common_step_counter)
+
+
+def cmoe_disturbance(env: "ManagerBasedRLEnv") -> torch.Tensor:
+    if not hasattr(env, "_cmoe_disturbance"):
+        return torch.zeros((env.num_envs, 3), device=env.device)
+
+    active = env._cmoe_disturbance_step == int(env.common_step_counter)
+    return torch.where(
+        active.unsqueeze(-1),
+        env._cmoe_disturbance,
+        torch.zeros_like(env._cmoe_disturbance),
+    )
+
+
+# =============================================================================
+#  6) 官方指令课程 (legged_robot.update_command_curriculum 逐句移植)
 #     条件: easy 组与 hard 组的 tracking_lin_vel 每步均值都 > 0.7 * 权重
 #     动作: 两档 lin_vel_x 上限各 +0.1, 分别 clip 到 max_easy(3.0)/max_hard(1.0)
 #     注意: 官方 G1CMoECfg.commands.curriculum = False, 即发布训练**未启用**,
