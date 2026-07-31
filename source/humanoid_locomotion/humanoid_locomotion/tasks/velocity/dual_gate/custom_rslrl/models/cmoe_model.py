@@ -52,8 +52,8 @@ class CMoEModel(MLPModel):
 
     Actor 'systematic observation' (157 for G1-12DOF):
         [ cur_proprio(45), velocity(3), z_H(16), map_height(77), z_E(16) ]
-    Critic 'systematic observation' (125 for G1-12DOF, privileged, no estimators):
-        [ critic_proprio(48), critic_map_height(77) ]
+    Critic 'systematic observation' (128 for G1-12DOF, privileged, no estimators):
+        [ critic_proprio(51), critic_map_height(77) ]
     门控在 actor 端算一次(已含 Softmax 的概率), critic 端 detach 复用。
     """
 
@@ -101,7 +101,7 @@ class CMoEModel(MLPModel):
             hidden_dims, activation, obs_normalization, distribution_cfg,
         )
 
-        system_dim = self._get_latent_dim()  # 157 (actor) / 125 (critic)
+        system_dim = self._get_latent_dim()  # 157 (actor) / 128 (critic)
         self.num_experts = num_experts
         # 单一(状态无关)std 在 distribution 里 -> 专家只输出均值(actor) / 值(critic)
         expert_out_dim = self.distribution.input_dim if self.distribution is not None else output_dim
@@ -173,9 +173,9 @@ class CMoEModel(MLPModel):
             self._cur_z_E = z_E
             return torch.cat([cur, vel, z_H, map_flat, z_E], dim=-1)   # (B, 157)
         # critic
-        critic = self.obs_normalizer(obs[self.obs_groups[0]])         # (B, 99)
+        critic = self.obs_normalizer(obs[self.obs_groups[0]])         # (B, 51)
         map_flat = obs[map_group][:, 2].flatten(1)                    # (B, 77)
-        return torch.cat([critic, map_flat], dim=-1)                  # (B, 125)
+        return torch.cat([critic, map_flat], dim=-1)                  # (B, 128)
 
     # ------------------------------------------------------------------ MoE forward
     def forward(self, obs, masks=None, hidden_state=None, stochastic_output=False, gate_input=None):
