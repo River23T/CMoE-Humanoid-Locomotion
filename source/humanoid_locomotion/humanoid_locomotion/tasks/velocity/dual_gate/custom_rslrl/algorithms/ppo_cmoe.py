@@ -289,11 +289,11 @@ class PPOCMoE:
             next_proprio = torch.cat(
                 [batch.next_proprio[:, 0:6], batch.next_proprio[:, 9:], batch.next_critic_vel], dim=-1
             )  # [angv3, grav3, q12, dq12, a12, next_vel3] = 45, 对齐官方 next_critic_obs[:, 3:48]
-            # 2026-07-18 修复: 此前误写为 batch.observations["critic"][:, :3] —— 那是**当前步**
-            # 的速度, 与本文件自建的 next_critic_vel 字段(存了却从未用)和注释("下一步")自相矛盾。
-            # 官方 cmoe_ppo.py L135 传给估计器的是 next_critic_obs_batch(runner L92-93 由 step 后
-            # 的 critic obs 构成), StateEstimator.update 取其 [:, 45:48] 即**下一步** base_lin_vel。
-            next_vel = batch.next_critic_vel                             # 下一步 base_lin_vel (速度目标)
+            # Official state_estimator uses two temporal targets:
+            # velocity target = current critic_obs base_lin_vel;
+            # reconstruction target = next proprio, already built
+            # above with batch.next_critic_vel.
+            next_vel = batch.observations["critic"][:, :3]
             map_flat = batch.observations["actor_map"][:, 2].flatten(1)  # (B, 77)
             (est_loss, vae_loss, recons_loss, kld_loss,
              _e2, terrain_loss, _r2, _k2) = self._raw_actor.update_estimators(
