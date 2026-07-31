@@ -399,6 +399,7 @@ class CMoEEventCfg:
         func=mdp.push_by_replacing_velocity,
         mode="interval",
         interval_range_s=(16.0, 16.0),               # 官方 push_interval_s = 16
+        is_global_time=True,
         params={"velocity_range": {"x": (-1.0, 1.0), "y": (-1.0, 1.0)}},  # 官方 max_push_vel_xy = 1
     )
 
